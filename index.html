@@ -12,6 +12,16 @@
     box-sizing: border-box;
   }
 
+  html, body {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none;
+  }
+
   body {
     margin: 0;
     min-height: 100vh;
@@ -27,17 +37,17 @@
       #e8e8e6 36px
     );
     font-family: 'Patrick Hand', cursive, sans-serif;
-    padding: 24px;
+    padding: 16px 24px;
     color: #18181b;
   }
 
   .leno-dash {
     width: 100%;
-    max-width: 960px;
+    max-width: 1160px;
     font-family: 'Patrick Hand', cursive, sans-serif;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
   }
 
   /* 1. HEADER BAR */
@@ -1571,7 +1581,12 @@
 
           if (isInitial || isNearBottom) {
             unreadBtn.style.display = 'none';
-            chatFeed.scrollTop = chatFeed.scrollHeight;
+            const snapBottom = () => { chatFeed.scrollTop = chatFeed.scrollHeight; };
+            snapBottom();
+            requestAnimationFrame(snapBottom);
+            chatFeed.querySelectorAll('img').forEach(img => {
+              if (!img.complete) img.addEventListener('load', snapBottom, { once: true });
+            });
           } else {
             chatFeed.scrollTop = prevScrollTop;
             unreadBtn.style.display = 'inline-block';
