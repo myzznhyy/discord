@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="https://leno-owo.vercel.app/favicon.svg">
 <title>Leno | Community — Discord Server Widget</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap');
@@ -925,6 +926,75 @@
     background: #f4f4f5;
     color: #18181b;
   }
+  /* IMAGE LIGHTBOX (DISCORD-STYLE) */
+  .leno-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.86);
+    backdrop-filter: blur(4px);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    z-index: 10000;
+    padding: 20px;
+  }
+
+  .leno-lightbox.open {
+    display: flex;
+  }
+
+  .leno-lightbox-img {
+    max-width: 92vw;
+    max-height: 82vh;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  .leno-lightbox-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 14px;
+  }
+
+  .leno-lightbox-bar a {
+    color: #e4e4e7;
+    text-decoration: none;
+    font-weight: 700;
+  }
+
+  .leno-lightbox-bar a:hover {
+    color: #ffffff;
+    text-decoration: underline;
+  }
+
+  .leno-lightbox-close {
+    position: fixed;
+    top: 16px;
+    right: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    font-size: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .leno-lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.28);
+  }
+
+  .leno-msg-img {
+    cursor: zoom-in;
+  }
 </style>
 </head>
 <body>
@@ -947,6 +1017,7 @@
       </div>
 
       <div class="leno-actions">
+        <a href="https://leno-owo.vercel.app/" class="leno-btn">← trang chủ</a>
         <button id="dc-refresh" class="leno-btn" type="button">↻ làm mới</button>
         <button id="dc-copy" class="leno-btn" type="button">sao chép link</button>
         <a id="dc-invite" href="https://discord.gg/gCHuTHRGRq" target="_blank" rel="noopener" class="leno-btn leno-btn-primary">💬 tham gia discord</a>
@@ -1090,6 +1161,15 @@
     </div>
   </div>
 
+  <!-- IMAGE LIGHTBOX -->
+  <div id="leno-lightbox" class="leno-lightbox">
+    <button id="lb-close" class="leno-lightbox-close" type="button">×</button>
+    <img id="lb-img" class="leno-lightbox-img" src="" alt="" onclick="event.stopPropagation()">
+    <div class="leno-lightbox-bar" onclick="event.stopPropagation()">
+      <a id="lb-orig" href="#" target="_blank" rel="noopener">Mở bản gốc ↗</a>
+    </div>
+  </div>
+
   <script>
     const API_BASE = 'https://leno-owo.vercel.app/api/discord';
     const GUILD_ID = '1570864551967330505';
@@ -1125,6 +1205,7 @@
     let chatTimer = null;
     let summaryCache = null;
     const preloadedBanners = new Set();
+    const activityHold = new Map(); // prevents transient 1-poll lambda blips from flickering RPC
 
     function esc(str) {
       return String(str || '')
@@ -1257,7 +1338,7 @@
       } else {
         if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
         if (next === 'voice') {
-          note.textContent = 'Cập nhật tự động mỗi 5s';
+          note.textContent = 'Phòng voice trong server';
         } else {
           const onlineCount = summaryCache ? summaryCache.members.filter(m => m.status !== 'offline').length : 0;
           const totalCount = summaryCache ? (summaryCache.guild.member_count || summaryCache.members.length) : 0;
@@ -1277,8 +1358,22 @@
     const modalOverlay = document.getElementById('leno-modal-overlay');
     document.getElementById('lp-close').onclick = () => modalOverlay.classList.remove('open');
     modalOverlay.onclick = () => modalOverlay.classList.remove('open');
+    const lightbox = document.getElementById('leno-lightbox');
+    const lbImg = document.getElementById('lb-img');
+    const lbOrig = document.getElementById('lb-orig');
+    function openLightbox(url) {
+      lbImg.src = url;
+      lbOrig.href = url;
+      lightbox.classList.add('open');
+    }
+    document.getElementById('lb-close').onclick = () => lightbox.classList.remove('open');
+    lightbox.onclick = () => lightbox.classList.remove('open');
+
     window.addEventListener('keydown', e => {
-      if (e.key === 'Escape') modalOverlay.classList.remove('open');
+      if (e.key === 'Escape') {
+        modalOverlay.classList.remove('open');
+        lightbox.classList.remove('open');
+      }
     });
 
     function renderModalData(m) {
@@ -1441,7 +1536,7 @@
             const attachHtml = (m.attachments || []).map(a => {
               const isImg = (a.content_type || '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(a.filename || '');
               if (isImg) {
-                return `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img class="leno-msg-img" src="${esc(a.url)}" alt="${esc(a.filename)}"></a>`;
+                return `<img class="leno-msg-img" src="${esc(a.url)}" alt="${esc(a.filename)}" onclick="openLightbox('${esc(a.url)}')">`;
               }
               return `<div style="margin-top:4px;"><a href="${esc(a.url)}" target="_blank" rel="noopener" style="color:#2563eb;font-size:14px;">📎 ${esc(a.filename)}</a></div>`;
             }).join('');
@@ -1452,7 +1547,7 @@
               const fields = (e.fields || []).slice(0, 3).map(f =>
                 `<div style="margin-top:3px;font-size:13px;color:#52525b;"><b>${esc(f.name)}:</b> ${esc(String(f.value || '').slice(0, 120))}</div>`
               ).join('');
-              const img = e.image ? `<img class="leno-msg-img" src="${esc(e.image)}" alt="">` : '';
+              const img = e.image ? `<img class="leno-msg-img" src="${esc(e.image)}" alt="" onclick="openLightbox('${esc(e.image)}')">` : '';
               return `<div class="leno-msg-embed" style="border-left-color:${esc(e.color || '#6366f1')};">${title}${desc}${fields}${img}</div>`;
             }).join('');
 
@@ -1494,6 +1589,21 @@
         .then(r => r.json())
         .then(data => {
           if (!data || !data.ok) throw new Error();
+          // Smooth out transient single-poll RPC drops across serverless instances
+          (data.members || []).forEach(m => {
+            if (m.activity || m.game) {
+              activityHold.set(m.id, { game: m.game, activity: m.activity, misses: 0 });
+            } else if (activityHold.has(m.id)) {
+              const prev = activityHold.get(m.id);
+              prev.misses += 1;
+              if (prev.misses < 3) {
+                m.game = prev.game;
+                m.activity = prev.activity;
+              } else {
+                activityHold.delete(m.id);
+              }
+            }
+          });
           summaryCache = data;
 
           // Preload banners in background so modal opens with 0ms banner delay
@@ -1512,113 +1622,3 @@
             voice: data.voiceChannels,
             members: (data.members || []).map(m => [m.id, m.status, m.game, m.voice_channel_id, m.display, m.banner_url])
           });
-          if (sig === lastSummarySig) return;
-          lastSummarySig = sig;
-
-          document.getElementById('dc-name').textContent = data.guild.name;
-          if (data.guild.icon_url) {
-            document.getElementById('dc-icon').innerHTML = `<img src="${esc(data.guild.icon_url)}" alt="${esc(data.guild.name)}">`;
-          }
-
-          const chatName = data.chatChannel?.name || '💬•𝗖𝗵𝗮𝘁𝘁𝗶𝗻𝗴';
-          tabChat.textContent = `💬 #${chatName}`;
-          document.getElementById('dc-chat-heading').textContent = `# ${chatName}`;
-          document.getElementById('stat-text-name').innerHTML = `#${esc(chatName)} <span>(${CHAT_CHANNEL_ID})</span>`;
-
-          const members = data.members || [];
-          const onlineList = members.filter(m => m.status && m.status !== 'offline');
-          const presenceCount = data.guild.presence_count ?? onlineList.length;
-          const gamingCount = onlineList.filter(m => m.game).length;
-          const voiceChannels = data.voiceChannels || [];
-          const inVoiceCount = onlineList.filter(m => m.voice_channel_id).length;
-
-          tabVoice.textContent = `🔊 Kênh thoại (${voiceChannels.length})`;
-          tabMembers.textContent = `👥 Thành viên (${members.length})`;
-
-          if (activeTab === 'members') {
-            document.getElementById('dc-list-note').textContent = `Online ${onlineList.length} / ${data.guild.member_count || members.length} · Ấn thẻ xem bio`;
-          }
-
-          document.getElementById('stat-online').innerHTML = `${presenceCount} <span>thành viên</span>`;
-          document.getElementById('bar-online').style.width = `${Math.min(100, (onlineList.length / Math.max(1, presenceCount)) * 100)}%`;
-
-          document.getElementById('stat-gaming').innerHTML = `${gamingCount} <span>/ ${onlineList.length} người</span>`;
-          document.getElementById('bar-gaming').style.width = `${onlineList.length ? (gamingCount / onlineList.length) * 100 : 0}%`;
-
-          document.getElementById('stat-voice').innerHTML = `${voiceChannels.length} <span>kênh · ${inVoiceCount} đang kết nối</span>`;
-          document.getElementById('bar-voice').style.width = `${onlineList.length ? (inVoiceCount / onlineList.length) * 100 : 0}%`;
-
-          // Preserve scrollTop when refreshing member grid
-          const prevMemberScroll = boxMembers.scrollTop;
-          boxMembers.innerHTML = '';
-          members.forEach(m => {
-            const st = m.status || 'offline';
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'leno-m-card';
-            const botHtml = m.bot ? '<span class="leno-bot-tag">APP</span>' : '';
-            card.innerHTML = `
-              <div class="leno-av-box">
-                <img src="${esc(m.avatar_url)}" alt="${esc(m.display)}" loading="lazy">
-                <span class="leno-st-dot st-${esc(st)}"></span>
-              </div>
-              <div class="leno-m-info">
-                <div class="leno-m-name">
-                  <span style="overflow:hidden;text-overflow:ellipsis;color:${esc(m.server_color || '#18181b')};">${esc(m.display)}</span>
-                  ${botHtml}
-                </div>
-                <div class="leno-m-sub">${m.game ? '🎮 ' + esc(m.game) : (STATUS_TEXT[st] || st)}</div>
-              </div>
-            `;
-            card.onclick = () => openMemberModal(m);
-            boxMembers.appendChild(card);
-          });
-          boxMembers.scrollTop = prevMemberScroll;
-
-          // Update voice channels live
-          if (!voiceChannels.length) {
-            boxVoice.innerHTML = `
-              <div class="leno-v-card">
-                <div class="leno-v-title"><span>🔊 Kênh thoại</span></div>
-                <div class="leno-v-user" style="color:#a1a1aa;">Chưa có kênh thoại công khai</div>
-              </div>
-            `;
-          } else {
-            boxVoice.innerHTML = voiceChannels.map(ch => {
-              const usersHtml = (ch.users || []).length
-                ? ch.users.map(u => `<div class="leno-v-user"><img src="${esc(u.avatar_url)}" alt="">${esc(u.display)}</div>`).join('')
-                : '<div class="leno-v-user" style="color:#a1a1aa;">Trống</div>';
-              return `
-                <a href="https://discord.com/channels/${GUILD_ID}/${esc(ch.id)}" target="_blank" rel="noopener" class="leno-v-card">
-                  <div class="leno-v-title">
-                    <span>🔊 ${esc(ch.name)} (${(ch.users || []).length})</span>
-                    <span style="font-size:13px;color:#3b49df;">Tham gia ↗</span>
-                  </div>
-                  ${usersHtml}
-                </a>
-              `;
-            }).join('');
-          }
-        })
-        .catch(() => {
-          if (!summaryCache) {
-            document.getElementById('dc-name').textContent = 'Leno | Community';
-            document.getElementById('dc-state').textContent = 'Offline';
-          }
-        });
-    }
-
-    document.getElementById('dc-refresh').onclick = () => {
-      lastSummarySig = '';
-      lastChatSig = '';
-      loadSummary();
-      if (activeTab === 'chat') loadChat(false);
-    };
-
-    setActiveTab('chat');
-    loadSummary();
-    setInterval(loadSummary, 5000);
-  </script>
-
-</body>
-</html>
