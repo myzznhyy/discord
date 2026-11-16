@@ -235,6 +235,7 @@
 
   /* Live Chat Panel (Tab 1) */
   .leno-chat-wrap {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -299,6 +300,26 @@
   .leno-member-grid::-webkit-scrollbar-thumb {
     background: #e4e4e7;
     border-radius: 10px;
+  }
+
+  .leno-unread-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 14px;
+    background: #18181b;
+    color: #ffffff;
+    border: none;
+    border-radius: 999px;
+    padding: 6px 13px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    display: none;
+  }
+
+  .leno-unread-btn:hover {
+    background: #3b49df;
   }
 
   .leno-msg {
@@ -665,7 +686,7 @@
 
   .lp-banner {
     position: relative;
-    height: 135px;
+    height: 132px;
     background: linear-gradient(135deg, #e0e7ff, #fae8ff);
     background-size: cover;
     background-position: center;
@@ -690,10 +711,11 @@
   }
   .lp-close:hover { background: rgba(0, 0, 0, 0.75); }
 
+  /* Align top so Discord button drops comfortably below the banner edge */
   .lp-top-row {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: flex-start;
     padding: 0 20px;
     margin-top: -42px;
     position: relative;
@@ -737,7 +759,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 4px;
+    margin-top: 56px;
     transition: transform 0.2s, background 0.2s;
   }
 
@@ -842,7 +864,6 @@
     margin: 0 2px;
   }
 
-  /* Spoiler matching Discord */
   .leno-spoiler {
     background: #3b3734;
     color: transparent;
@@ -963,6 +984,7 @@
           <div id="dc-chat-feed" class="leno-chat-feed">
             <div class="leno-empty-note">Đang tải tin nhắn trực tiếp...</div>
           </div>
+          <button id="dc-unread-btn" type="button" class="leno-unread-btn">Có tin nhắn mới ↓</button>
         </div>
 
         <!-- 2. KÊNH THOẠI -->
@@ -1035,9 +1057,14 @@
         <div id="lp-top-roles" class="lp-roles-row"></div>
       </div>
 
-      <div class="lp-section-box">
+      <div id="lp-bio-box" class="lp-section-box">
         <div class="lp-box-label">Giới thiệu về tôi</div>
         <div id="lp-bio" class="lp-bio-text"></div>
+      </div>
+
+      <div id="lp-rpc-box" class="lp-section-box" style="display:none;">
+        <div class="lp-box-label">Đang hoạt động</div>
+        <div id="lp-rpc" style="display:flex;align-items:center;gap:12px;"></div>
       </div>
 
       <div class="lp-section-box">
@@ -1069,6 +1096,12 @@
     const CHAT_CHANNEL_ID = '1571225689703710984';
     const WEBSITE_INVITE = 'https://discord.gg/gCHuTHRGRq';
 
+    // Discord Bot API không cho đọc About Me (bio) cá nhân của tài khoản người dùng thường.
+    // Bạn có thể điền thêm bio cho từng user theo User ID tại đây nếu muốn hiện chuẩn 100%:
+    const CUSTOM_BIOS = {
+      // '1502174176176242840': 'Bio riêng của Myz nhyy♡...'
+    };
+
     const STATUS_TEXT = {
       online: 'Trực tuyến',
       idle: 'Chờ',
@@ -1087,9 +1120,11 @@
     };
 
     let activeTab = 'chat';
-    let lastMsgId = '';
+    let lastChatSig = '';
+    let lastSummarySig = '';
     let chatTimer = null;
     let summaryCache = null;
+    const preloadedBanners = new Set();
 
     function esc(str) {
       return String(str || '')
@@ -1186,6 +1221,20 @@
     const cardVoice = document.getElementById('card-voice');
     const cardMembers = document.getElementById('card-members');
 
+    const unreadBtn = document.getElementById('dc-unread-btn');
+    const chatFeed = document.getElementById('dc-chat-feed');
+
+    unreadBtn.onclick = () => {
+      unreadBtn.style.display = 'none';
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    };
+
+    chatFeed.addEventListener('scroll', () => {
+      if (chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight < 64) {
+        unreadBtn.style.display = 'none';
+      }
+    });
+
     function setActiveTab(next) {
       activeTab = next;
       tabChat.classList.toggle('active', next === 'chat');
@@ -1208,7 +1257,7 @@
       } else {
         if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
         if (next === 'voice') {
-          note.textContent = 'Phòng voice trong server';
+          note.textContent = 'Cập nhật tự động mỗi 5s';
         } else {
           const onlineCount = summaryCache ? summaryCache.members.filter(m => m.status !== 'offline').length : 0;
           const totalCount = summaryCache ? (summaryCache.guild.member_count || summaryCache.members.length) : 0;
@@ -1268,7 +1317,28 @@
         : '<span class="lp-role-pill">Thành viên</span>';
       document.getElementById('lp-roles-label').textContent = `Vai trò (${roles.length})`;
 
-      document.getElementById('lp-bio').innerHTML = parseDiscordText(m.bio || 'Thành viên của Leno Community :)');
+      const bioBox = document.getElementById('lp-bio-box');
+      const bioText = CUSTOM_BIOS[m.id] || m.bio || '';
+      if (bioText) {
+        bioBox.style.display = 'block';
+        document.getElementById('lp-bio').innerHTML = parseDiscordText(bioText);
+      } else {
+        bioBox.style.display = 'none';
+      }
+
+      const rpcBox = document.getElementById('lp-rpc-box');
+      const rpcName = m.activity?.name || m.game || '';
+      if (rpcName) {
+        rpcBox.style.display = 'block';
+        const imgHtml = m.activity?.large_image
+          ? `<img src="${esc(m.activity.large_image)}" alt="" style="width:48px;height:48px;border-radius:12px;object-fit:cover;border:1px solid #e4e4e7;flex-shrink:0;">`
+          : `<div style="width:48px;height:48px;border-radius:12px;background:#eef2ff;border:1px solid #e4e4e7;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🎮</div>`;
+        const detailsHtml = m.activity?.details ? `<div style="font-size:13.5px;color:#52525b;">${esc(m.activity.details)}</div>` : '';
+        const stateHtml = m.activity?.state ? `<div style="font-size:13px;color:#71717a;">${esc(m.activity.state)}</div>` : '';
+        document.getElementById('lp-rpc').innerHTML = `${imgHtml}<div style="min-width:0;flex:1;"><div style="font-size:16px;font-weight:700;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(rpcName)}</div>${detailsHtml}${stateHtml}</div>`;
+      } else {
+        rpcBox.style.display = 'none';
+      }
       document.getElementById('lp-discord-joined').textContent = getDiscordCreatedDate(m.id, m.discord_created_at);
       document.getElementById('lp-server-joined').textContent = formatDate(m.joined_at);
       document.getElementById('lp-user-id').textContent = `# ${m.id}`;
@@ -1283,6 +1353,7 @@
     }
 
     function openMemberModal(member) {
+      // Banner is already preloaded in summary -> renders instantaneously with zero flash
       renderModalData(member);
       modalOverlay.classList.add('open');
 
@@ -1296,7 +1367,7 @@
               ...res.member,
               status: member.status || res.member.status,
               game: member.game || res.member.game,
-              bio: res.member.bio || member.bio
+              bio: CUSTOM_BIOS[member.id] || res.member.bio || member.bio
             });
           })
           .catch(() => {});
@@ -1312,17 +1383,16 @@
     }
 
     function loadChat(silent) {
-      const feed = document.getElementById('dc-chat-feed');
-      if (!silent && !feed.querySelector('.leno-msg')) {
-        feed.innerHTML = '<div class="leno-empty-note">Đang tải tin nhắn trực tiếp...</div>';
+      if (!silent && !chatFeed.querySelector('.leno-msg')) {
+        chatFeed.innerHTML = '<div class="leno-empty-note">Đang tải tin nhắn trực tiếp...</div>';
       }
 
       fetch(`${API_BASE}?view=chat&t=${Date.now()}`)
         .then(r => r.json())
         .then(data => {
           if (!data || !data.ok) {
-            if (!feed.querySelector('.leno-msg')) {
-              feed.innerHTML = '<div class="leno-empty-note" style="color:#e11d48;">Chưa đọc được kênh chat lúc này.</div>';
+            if (!chatFeed.querySelector('.leno-msg')) {
+              chatFeed.innerHTML = '<div class="leno-empty-note" style="color:#e11d48;">Chưa đọc được kênh chat lúc này.</div>';
             }
             return;
           }
@@ -1335,15 +1405,22 @@
 
           const msgs = data.messages || [];
           if (!msgs.length) {
-            feed.innerHTML = '<div class="leno-empty-note">Chưa có tin nhắn nào trong kênh này.</div>';
+            if (lastChatSig !== 'empty') {
+              lastChatSig = 'empty';
+              chatFeed.innerHTML = '<div class="leno-empty-note">Chưa có tin nhắn nào trong kênh này.</div>';
+            }
             return;
           }
 
-          const newest = msgs[msgs.length - 1].id;
-          const shouldScroll = newest !== lastMsgId;
-          lastMsgId = newest;
+          const sig = msgs.map(m => `${m.id}:${m.edited_timestamp || ''}`).join(',');
+          if (sig === lastChatSig) return; // Nothing changed -> keep scroll & selection untouched
 
-          feed.innerHTML = msgs.map(m => {
+          const isInitial = lastChatSig === '';
+          const isNearBottom = chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight < 64;
+          const prevScrollTop = chatFeed.scrollTop;
+          lastChatSig = sig;
+
+          chatFeed.innerHTML = msgs.map(m => {
             const replyHtml = m.replyTo
               ? `<div class="leno-msg-reply">↩ trả lời <b>${esc(m.replyTo.author)}</b>: ${esc(m.replyTo.content || '[đính kèm]')}</div>`
               : '';
@@ -1386,13 +1463,17 @@
             `;
           }).join('');
 
-          if (shouldScroll) {
-            feed.scrollTop = feed.scrollHeight;
+          if (isInitial || isNearBottom) {
+            unreadBtn.style.display = 'none';
+            chatFeed.scrollTop = chatFeed.scrollHeight;
+          } else {
+            chatFeed.scrollTop = prevScrollTop;
+            unreadBtn.style.display = 'inline-block';
           }
         })
         .catch(() => {
-          if (!feed.querySelector('.leno-msg')) {
-            feed.innerHTML = '<div class="leno-empty-note" style="color:#e11d48;">Không kết nối được máy chủ chat.</div>';
+          if (!chatFeed.querySelector('.leno-msg')) {
+            chatFeed.innerHTML = '<div class="leno-empty-note" style="color:#e11d48;">Không kết nối được máy chủ chat.</div>';
           }
         });
     }
@@ -1404,99 +1485,18 @@
           if (!data || !data.ok) throw new Error();
           summaryCache = data;
 
-          document.getElementById('dc-name').textContent = data.guild.name;
-          if (data.guild.icon_url) {
-            document.getElementById('dc-icon').innerHTML = `<img src="${esc(data.guild.icon_url)}" alt="${esc(data.guild.name)}">`;
-          }
-
-          const chatName = data.chatChannel?.name || '💬•𝗖𝗵𝗮𝘁𝘁𝗶𝗻𝗴';
-          tabChat.textContent = `💬 #${chatName}`;
-          document.getElementById('dc-chat-heading').textContent = `# ${chatName}`;
-          document.getElementById('stat-text-name').innerHTML = `#${esc(chatName)} <span>(${CHAT_CHANNEL_ID})</span>`;
-
-          const members = data.members || [];
-          const onlineList = members.filter(m => m.status && m.status !== 'offline');
-          const presenceCount = data.guild.presence_count ?? onlineList.length;
-          const gamingCount = onlineList.filter(m => m.game).length;
-          const voiceChannels = data.voiceChannels || [];
-          const inVoiceCount = onlineList.filter(m => m.voice_channel_id).length;
-
-          tabVoice.textContent = `🔊 Kênh thoại (${voiceChannels.length})`;
-          tabMembers.textContent = `👥 Thành viên (${members.length})`;
-
-          document.getElementById('stat-online').innerHTML = `${presenceCount} <span>thành viên</span>`;
-          document.getElementById('bar-online').style.width = `${Math.min(100, (onlineList.length / Math.max(1, presenceCount)) * 100)}%`;
-
-          document.getElementById('stat-gaming').innerHTML = `${gamingCount} <span>/ ${onlineList.length} người</span>`;
-          document.getElementById('bar-gaming').style.width = `${onlineList.length ? (gamingCount / onlineList.length) * 100 : 0}%`;
-
-          document.getElementById('stat-voice').innerHTML = `${voiceChannels.length} <span>kênh · ${inVoiceCount} đang kết nối</span>`;
-          document.getElementById('bar-voice').style.width = `${onlineList.length ? (inVoiceCount / onlineList.length) * 100 : 0}%`;
-
-          // Render members
-          boxMembers.innerHTML = '';
-          members.forEach(m => {
-            const st = m.status || 'offline';
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'leno-m-card';
-            const botHtml = m.bot ? '<span class="leno-bot-tag">APP</span>' : '';
-            card.innerHTML = `
-              <div class="leno-av-box">
-                <img src="${esc(m.avatar_url)}" alt="${esc(m.display)}" loading="lazy">
-                <span class="leno-st-dot st-${esc(st)}"></span>
-              </div>
-              <div class="leno-m-info">
-                <div class="leno-m-name">
-                  <span style="overflow:hidden;text-overflow:ellipsis;color:${esc(m.server_color || '#18181b')};">${esc(m.display)}</span>
-                  ${botHtml}
-                </div>
-                <div class="leno-m-sub">${m.game ? '🎮 ' + esc(m.game) : (STATUS_TEXT[st] || st)}</div>
-              </div>
-            `;
-            card.onclick = () => openMemberModal(m);
-            boxMembers.appendChild(card);
+          // Preload banners in background so modal opens with 0ms banner delay
+          (data.members || []).forEach(m => {
+            if (m.banner_url && !preloadedBanners.has(m.banner_url)) {
+              preloadedBanners.add(m.banner_url);
+              const img = new Image();
+              img.src = m.banner_url;
+            }
           });
 
-          // Render voice channels
-          if (!voiceChannels.length) {
-            boxVoice.innerHTML = `
-              <div class="leno-v-card">
-                <div class="leno-v-title"><span>🔊 Kênh thoại</span></div>
-                <div class="leno-v-user" style="color:#a1a1aa;">Chưa có kênh thoại công khai</div>
-              </div>
-            `;
-          } else {
-            boxVoice.innerHTML = voiceChannels.map(ch => {
-              const usersHtml = (ch.users || []).length
-                ? ch.users.map(u => `<div class="leno-v-user"><img src="${esc(u.avatar_url)}" alt="">${esc(u.display)}</div>`).join('')
-                : '<div class="leno-v-user" style="color:#a1a1aa;">Trống</div>';
-              return `
-                <a href="https://discord.com/channels/${GUILD_ID}/${esc(ch.id)}" target="_blank" rel="noopener" class="leno-v-card">
-                  <div class="leno-v-title">
-                    <span>🔊 ${esc(ch.name)} (${(ch.users || []).length})</span>
-                    <span style="font-size:13px;color:#3b49df;">Tham gia ↗</span>
-                  </div>
-                  ${usersHtml}
-                </a>
-              `;
-            }).join('');
-          }
-        })
-        .catch(() => {
-          document.getElementById('dc-name').textContent = 'Leno | Community';
-          document.getElementById('dc-state').textContent = 'Offline';
-        });
-    }
-
-    document.getElementById('dc-refresh').onclick = () => {
-      loadSummary();
-      if (activeTab === 'chat') loadChat(false);
-    };
-
-    setActiveTab('chat');
-    loadSummary();
-  </script>
-
-</body>
-</html>
+          const sig = JSON.stringify({
+            name: data.guild.name,
+            presence: data.guild.presence_count,
+            chat: data.chatChannel?.name,
+            voice: data.voiceChannels,
+            members: (data.members || []).map(m => [m.id, m.status, m.game, m.voice_channel_id, m.display, m.banner_url])
