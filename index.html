@@ -1335,7 +1335,18 @@
           : `<div style="width:48px;height:48px;border-radius:12px;background:#eef2ff;border:1px solid #e4e4e7;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🎮</div>`;
         const detailsHtml = m.activity?.details ? `<div style="font-size:13.5px;color:#52525b;">${esc(m.activity.details)}</div>` : '';
         const stateHtml = m.activity?.state ? `<div style="font-size:13px;color:#71717a;">${esc(m.activity.state)}</div>` : '';
-        document.getElementById('lp-rpc').innerHTML = `${imgHtml}<div style="min-width:0;flex:1;"><div style="font-size:16px;font-weight:700;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(rpcName)}</div>${detailsHtml}${stateHtml}</div>`;
+        let timeHtml = '';
+        if (m.activity?.start_ts) {
+          const sec = Math.max(0, Math.floor((Date.now() - m.activity.start_ts) / 1000));
+          const h = Math.floor(sec / 3600);
+          const min = Math.floor((sec % 3600) / 60);
+          const s = sec % 60;
+          const clock = h > 0
+            ? `${h}:${String(min).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+            : `${min}:${String(s).padStart(2, '0')}`;
+          timeHtml = `<div style="font-size:12.5px;color:#15803d;font-weight:700;margin-top:2px;">🎮 ${clock}</div>`;
+        }
+        document.getElementById('lp-rpc').innerHTML = `${imgHtml}<div style="min-width:0;flex:1;"><div style="font-size:16px;font-weight:700;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(rpcName)}</div>${detailsHtml}${stateHtml}${timeHtml}</div>`;
       } else {
         rpcBox.style.display = 'none';
       }
@@ -1500,3 +1511,114 @@
             chat: data.chatChannel?.name,
             voice: data.voiceChannels,
             members: (data.members || []).map(m => [m.id, m.status, m.game, m.voice_channel_id, m.display, m.banner_url])
+          });
+          if (sig === lastSummarySig) return;
+          lastSummarySig = sig;
+
+          document.getElementById('dc-name').textContent = data.guild.name;
+          if (data.guild.icon_url) {
+            document.getElementById('dc-icon').innerHTML = `<img src="${esc(data.guild.icon_url)}" alt="${esc(data.guild.name)}">`;
+          }
+
+          const chatName = data.chatChannel?.name || '💬•𝗖𝗵𝗮𝘁𝘁𝗶𝗻𝗴';
+          tabChat.textContent = `💬 #${chatName}`;
+          document.getElementById('dc-chat-heading').textContent = `# ${chatName}`;
+          document.getElementById('stat-text-name').innerHTML = `#${esc(chatName)} <span>(${CHAT_CHANNEL_ID})</span>`;
+
+          const members = data.members || [];
+          const onlineList = members.filter(m => m.status && m.status !== 'offline');
+          const presenceCount = data.guild.presence_count ?? onlineList.length;
+          const gamingCount = onlineList.filter(m => m.game).length;
+          const voiceChannels = data.voiceChannels || [];
+          const inVoiceCount = onlineList.filter(m => m.voice_channel_id).length;
+
+          tabVoice.textContent = `🔊 Kênh thoại (${voiceChannels.length})`;
+          tabMembers.textContent = `👥 Thành viên (${members.length})`;
+
+          if (activeTab === 'members') {
+            document.getElementById('dc-list-note').textContent = `Online ${onlineList.length} / ${data.guild.member_count || members.length} · Ấn thẻ xem bio`;
+          }
+
+          document.getElementById('stat-online').innerHTML = `${presenceCount} <span>thành viên</span>`;
+          document.getElementById('bar-online').style.width = `${Math.min(100, (onlineList.length / Math.max(1, presenceCount)) * 100)}%`;
+
+          document.getElementById('stat-gaming').innerHTML = `${gamingCount} <span>/ ${onlineList.length} người</span>`;
+          document.getElementById('bar-gaming').style.width = `${onlineList.length ? (gamingCount / onlineList.length) * 100 : 0}%`;
+
+          document.getElementById('stat-voice').innerHTML = `${voiceChannels.length} <span>kênh · ${inVoiceCount} đang kết nối</span>`;
+          document.getElementById('bar-voice').style.width = `${onlineList.length ? (inVoiceCount / onlineList.length) * 100 : 0}%`;
+
+          // Preserve scrollTop when refreshing member grid
+          const prevMemberScroll = boxMembers.scrollTop;
+          boxMembers.innerHTML = '';
+          members.forEach(m => {
+            const st = m.status || 'offline';
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'leno-m-card';
+            const botHtml = m.bot ? '<span class="leno-bot-tag">APP</span>' : '';
+            card.innerHTML = `
+              <div class="leno-av-box">
+                <img src="${esc(m.avatar_url)}" alt="${esc(m.display)}" loading="lazy">
+                <span class="leno-st-dot st-${esc(st)}"></span>
+              </div>
+              <div class="leno-m-info">
+                <div class="leno-m-name">
+                  <span style="overflow:hidden;text-overflow:ellipsis;color:${esc(m.server_color || '#18181b')};">${esc(m.display)}</span>
+                  ${botHtml}
+                </div>
+                <div class="leno-m-sub">${m.game ? '🎮 ' + esc(m.game) : (STATUS_TEXT[st] || st)}</div>
+              </div>
+            `;
+            card.onclick = () => openMemberModal(m);
+            boxMembers.appendChild(card);
+          });
+          boxMembers.scrollTop = prevMemberScroll;
+
+          // Update voice channels live
+          if (!voiceChannels.length) {
+            boxVoice.innerHTML = `
+              <div class="leno-v-card">
+                <div class="leno-v-title"><span>🔊 Kênh thoại</span></div>
+                <div class="leno-v-user" style="color:#a1a1aa;">Chưa có kênh thoại công khai</div>
+              </div>
+            `;
+          } else {
+            boxVoice.innerHTML = voiceChannels.map(ch => {
+              const usersHtml = (ch.users || []).length
+                ? ch.users.map(u => `<div class="leno-v-user"><img src="${esc(u.avatar_url)}" alt="">${esc(u.display)}</div>`).join('')
+                : '<div class="leno-v-user" style="color:#a1a1aa;">Trống</div>';
+              return `
+                <a href="https://discord.com/channels/${GUILD_ID}/${esc(ch.id)}" target="_blank" rel="noopener" class="leno-v-card">
+                  <div class="leno-v-title">
+                    <span>🔊 ${esc(ch.name)} (${(ch.users || []).length})</span>
+                    <span style="font-size:13px;color:#3b49df;">Tham gia ↗</span>
+                  </div>
+                  ${usersHtml}
+                </a>
+              `;
+            }).join('');
+          }
+        })
+        .catch(() => {
+          if (!summaryCache) {
+            document.getElementById('dc-name').textContent = 'Leno | Community';
+            document.getElementById('dc-state').textContent = 'Offline';
+          }
+        });
+    }
+
+    document.getElementById('dc-refresh').onclick = () => {
+      lastSummarySig = '';
+      lastChatSig = '';
+      loadSummary();
+      if (activeTab === 'chat') loadChat(false);
+    };
+
+    setActiveTab('chat');
+    loadSummary();
+    setInterval(loadSummary, 5000);
+  </script>
+
+</body>
+</html>
