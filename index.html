@@ -415,19 +415,45 @@
 
   .leno-msg-embed {
     margin-top: 6px;
-    padding: 8px 10px;
+    padding: 9px 12px;
     border-radius: 10px;
     background: #ffffff;
     border: 1px solid #e4e4e7;
     border-left-width: 4px;
     font-size: 13.5px;
     color: #3f3f46;
+    max-width: 460px;
+  }
+
+  .leno-msg-embed-provider {
+    font-size: 12px;
+    color: #71717a;
+    margin-bottom: 2px;
   }
 
   .leno-msg-embed-title {
     font-weight: 700;
     color: #18181b;
     margin-bottom: 3px;
+  }
+
+  .leno-msg-embed-title a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+
+  .leno-msg-embed-title a:hover {
+    text-decoration: underline;
+  }
+
+  .leno-msg-cont {
+    margin-top: 4px;
+  }
+
+  .leno-msg-edited {
+    font-size: 11px;
+    color: #a1a1aa;
+    margin-left: 4px;
   }
 
   .leno-msg-img {
@@ -1536,12 +1562,23 @@
           const prevScrollTop = chatFeed.scrollTop;
           lastChatSig = sig;
 
-          chatFeed.innerHTML = msgs.map(m => {
-            const replyHtml = m.replyTo
-              ? `<div class="leno-msg-reply">↩ trả lời <b>${esc(m.replyTo.author)}</b>: ${esc(m.replyTo.content || '[đính kèm]')}</div>`
-              : '';
-            const botHtml = m.author.bot ? `<span class="leno-bot-tag">APP</span>` : '';
-            const textHtml = m.content ? `<div class="leno-msg-text">${parseDiscordText(m.content)}</div>` : '';
+          // Group consecutive messages by the same author within 7 minutes (unless it is a reply)
+          const groups = [];
+          for (const m of msgs) {
+            const prev = groups[groups.length - 1];
+            const prevLast = prev ? prev.items[prev.items.length - 1] : null;
+            const sameAuthor = prev && prev.author.id === m.author.id;
+            const closeInTime = prevLast && (new Date(m.timestamp) - new Date(prevLast.timestamp)) < 7 * 60 * 1000;
+            if (sameAuthor && closeInTime && !m.replyTo) {
+              prev.items.push(m);
+            } else {
+              groups.push({ author: m.author, first: m, items: [m] });
+            }
+          }
+
+          const renderMsgContent = (m) => {
+            const editedHtml = m.edited_timestamp ? `<span class="leno-msg-edited">(đã chỉnh sửa)</span>` : '';
+            const textHtml = m.content ? `<div class="leno-msg-text">${parseDiscordText(m.content)}${editedHtml}</div>` : '';
 
             const attachHtml = (m.attachments || []).map(a => {
               const isImg = (a.content_type || '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(a.filename || '');
@@ -1552,28 +1589,43 @@
             }).join('');
 
             const embedHtml = (m.embeds || []).map(e => {
-              const title = e.title ? `<div class="leno-msg-embed-title">${esc(e.title)}</div>` : '';
-              const desc = e.description ? `<div>${parseDiscordText(e.description.slice(0, 260))}</div>` : '';
+              const prov = e.provider ? `<div class="leno-msg-embed-provider">${esc(e.provider)}</div>` : '';
+              const titleText = esc(e.title);
+              const title = e.title
+                ? `<div class="leno-msg-embed-title">${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${titleText}</a>` : titleText}</div>`
+                : '';
+              const desc = e.description ? `<div>${parseDiscordText(e.description.slice(0, 300))}</div>` : '';
               const fields = (e.fields || []).slice(0, 3).map(f =>
                 `<div style="margin-top:3px;font-size:13px;color:#52525b;"><b>${esc(f.name)}:</b> ${esc(String(f.value || '').slice(0, 120))}</div>`
               ).join('');
               const img = e.image ? `<img class="leno-msg-img" src="${esc(e.image)}" alt="" onclick="openLightbox('${esc(e.image)}')">` : '';
-              return `<div class="leno-msg-embed" style="border-left-color:${esc(e.color || '#6366f1')};">${title}${desc}${fields}${img}</div>`;
+              return `<div class="leno-msg-embed" style="border-left-color:${esc(e.color || '#6366f1')};">${prov}${title}${desc}${fields}${img}</div>`;
             }).join('');
+
+            return `${textHtml}${attachHtml}${embedHtml}`;
+          };
+
+          chatFeed.innerHTML = groups.map(g => {
+            const first = g.first;
+            const replyHtml = first.replyTo
+              ? `<div class="leno-msg-reply">↩ trả lời <b>${esc(first.replyTo.author)}</b>: ${esc(first.replyTo.content || '[đính kèm]')}</div>`
+              : '';
+            const botHtml = g.author.bot ? `<span class="leno-bot-tag">APP</span>` : '';
+            const bodyParts = g.items.map((item, idx) =>
+              idx === 0 ? renderMsgContent(item) : `<div class="leno-msg-cont">${renderMsgContent(item)}</div>`
+            ).join('');
 
             return `
               <div class="leno-msg">
-                <img class="leno-msg-av" src="${esc(m.author.avatar_url)}" alt="${esc(m.author.display)}">
+                <img class="leno-msg-av" src="${esc(g.author.avatar_url)}" alt="${esc(g.author.display)}">
                 <div class="leno-msg-body">
                   ${replyHtml}
                   <div class="leno-msg-head">
-                    <span class="leno-msg-author" style="color:${esc(m.author.color || '#18181b')}">${esc(m.author.display)}</span>
+                    <span class="leno-msg-author" style="color:${esc(g.author.color || '#18181b')}">${esc(g.author.display)}</span>
                     ${botHtml}
-                    <span class="leno-msg-time">${formatMsgTime(m.timestamp)}</span>
+                    <span class="leno-msg-time">${formatMsgTime(first.timestamp)}</span>
                   </div>
-                  ${textHtml}
-                  ${attachHtml}
-                  ${embedHtml}
+                  ${bodyParts}
                 </div>
               </div>
             `;
